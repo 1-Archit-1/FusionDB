@@ -2,14 +2,15 @@
 from dotenv import load_dotenv
 import os
 from baseline import baseline_prefilter
+from baseline import baseline_postfilter
 
 # load .env
 config = load_dotenv()
 meta_path = os.getenv('meta_path')
 embeddings_path = os.getenv('embeddings_path')
 
-prefilter = baseline_prefilter(meta_path=meta_path, embeddings_path=embeddings_path)
-
+#prefilter = baseline_prefilter(meta_path=meta_path, embeddings_path=embeddings_path)
+prefilter = baseline_postfilter(meta_path=meta_path, embeddings_path=embeddings_path)
 recall = prefilter['recall']
 ground_truth = prefilter['ground_truth']
 distances = prefilter['distances']
