@@ -22,6 +22,36 @@ def calculate_recall(found_indices, ground_truth_indices):
 ## Helper Functions ##
 #########################
 
+def fetch_test_query(data_embed):
+    query_id = 123
+    query_vec = data_embed[query_id].astype('float32')
+    faiss.normalize_L2(query_vec.reshape(1, -1))
+    query_vec = query_vec.reshape(-1) # Make 1D
+
+
+    # query_1 = "NSFW == 'UNLIKELY'"
+    # ground_truth_results = search_baseline_postfilter(query_vec, query_1, res, data_embed, k=10)
+
+    query_2 = "original_width > 1024 and original_height > 1024"
+
+
+    # query_3 = "similarity > 0.3"
+    # search_baseline_postfilter(query_vec, query_3, res, data_embed, k=10)
+
+    return query_vec, query_2
+
+def load_embeddings(file_path):
+    print(f"\nLoading embeddings from {file_path} using memory-mapping...")
+    try:
+        # Load the single, large file using mmap_mode='r'.
+        # This does NOT load the file into RAM. It just maps it.
+        data_embed = np.load(file_path, mmap_mode='r')
+    except FileNotFoundError:
+        print(f"Error: File not found: {file_path}")
+        print("Please run the 'concatenate_embeddings.py' script first.")
+        exit()
+    return data_embed
+
 def brute_force_search(query_vector, vectors, k=10):
     if vectors.shape[0] == 0:
         return np.array([]), np.array([])

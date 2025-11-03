@@ -17,51 +17,38 @@ METADATA_GLOB_PATH = meta_path
 EMBEDDINGS_FILE_PATH = embeddings_path
 
 
-res = duckdb_rel.db_implementation(METADATA_GLOB_PATH)
-
-
-
-
-print(f"\nLoading embeddings from {EMBEDDINGS_FILE_PATH} using memory-mapping...")
-try:
-    # Load the single, large file using mmap_mode='r'.
-    # This does NOT load the file into RAM. It just maps it.
-    data_embed = np.load(EMBEDDINGS_FILE_PATH, mmap_mode='r')
-except FileNotFoundError:
-    print(f"Error: File not found: {EMBEDDINGS_FILE_PATH}")
-    print("Please run the 'concatenate_embeddings.py' script first.")
-    exit()
+res = duckdb_rel.db_implementation(METADATA_GLOB_PATH) ### Change here for indexed metadata implementation
+data_embed = utils.load_embeddings(EMBEDDINGS_FILE_PATH)
 num_vectors, d = data_embed.shape
+
 print(f"Embeddings loaded. Found {num_vectors} vectors of dimension {d}.")
-
-
 # Critical Sanity Check:
 print(f"Total metadata rows: {res['total_metadata_rows']}, Total embedding vectors: {num_vectors}")
 assert res['total_metadata_rows'] == num_vectors, "MISMATCH: Metadata and embedding counts do not match!"
 print("Data and metadata counts align. Ready to search.")
 
 
-
-#### Write the Queries to test here ####
-query_id = 123
-query_vec = data_embed[query_id].astype('float32')
-faiss.normalize_L2(query_vec.reshape(1, -1))
-query_vec = query_vec.reshape(-1) # Make 1D
-
-
-# query_1 = "NSFW == 'UNLIKELY'"
-# ground_truth_results = search_baseline_postfilter(query_vec, query_1, res, data_embed, k=10)
-
-query_2 = "original_width > 1024 and original_height > 1024"
-
-
-# query_3 = "similarity > 0.3"
-# search_baseline_postfilter(query_vec, query_3, res, data_embed, k=10)
-    #######################################
-
+query_vec, meta_query = utils.fetch_test_query(data_embed) 
 vector_batch_size = int(os.getenv('vector_batch_size'))
-prefilter = search_baseline_prefilter(query_vec, query_2, res, data_embed, vector_batch_size= vector_batch_size, k=10)
-postfilter = search_baseline_postfilter(query_vec, query_2, res, data_embed, vector_batch_size = vector_batch_size, k=10)
+
+prefilter = search_baseline_prefilter(
+    query_vector = query_vec, 
+    sql_where_clause = meta_query, 
+    res = res, 
+    data_embed = data_embed, 
+    meta_method = 'duck', # use duckdb for metadata filtering
+    vector_batch_size= vector_batch_size, 
+    k=10
+)
+postfilter = search_baseline_postfilter(
+    query_vector = query_vec, 
+    sql_where_clause = meta_query, 
+    res = res, 
+    data_embed = data_embed, 
+    meta_method = 'duck', # use duckdb for metadata filtering
+    vector_batch_size = vector_batch_size, 
+    k = 10
+)
 
 prefilter_results = prefilter['result_indices']
 postfilter_results = postfilter['result_indices']
