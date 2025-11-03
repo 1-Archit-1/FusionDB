@@ -31,6 +31,7 @@ def db_implementation(meta_path):
         print(f"Error getting metadata row count: {e}")
         exit()
 
+    # Retur the connection and total rows
     return { 'con': con, 'total_metadata_rows': total_metadata_rows, 'meta_path': meta_path }
 
 def run_query(res, where_clause):
@@ -43,7 +44,7 @@ def run_query(res, where_clause):
     parquet_files = sorted(glob.glob(meta_path))
     try:
         query = f"""
-        SELECT (row_number() over ()) - 1 as id 
+        SELECT index as id
         FROM read_parquet({parquet_files}, filename=true)
         WHERE {where_clause}
         """
