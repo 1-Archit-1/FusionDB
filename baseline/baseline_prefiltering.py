@@ -8,7 +8,7 @@ import utils
 
 
 
-def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, vector_batch_size=100000, k=10):
+def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, meta_method='duck', vector_batch_size=100000, k=10):
     """
     Runs the full pre-filtering baseline:
     1. Filters metadata *directly from disk* using DuckDB.
@@ -26,19 +26,23 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, v
     ##################################################
 
     start_time = time.time()
-    try:
-        filtered_ids = duckdb_rel.run_query(res, sql_where_clause)
-    except Exception as e:
-        print(f"Error applying SQL filter: {e}")
-        print("Please check your column names and SQL syntax.")
-        return None
+    if meta_method == 'duck':
+        try:
+            filtered_ids = duckdb_rel.run_query(res, sql_where_clause)
+        except Exception as e:
+            print(f"Error applying SQL filter: {e}")
+            print("Please check your column names and SQL syntax.")
+            return None
+            
+        filter_time = time.time() - start_time
+        print(f"1. Metadata filtering (from disk): Found {len(filtered_ids)} items in {filter_time:.4f}s")
         
-    filter_time = time.time() - start_time
-    print(f"1. Metadata filtering (from disk): Found {len(filtered_ids)} items in {filter_time:.4f}s")
-    
-    if len(filtered_ids) == 0:
-        print("Result: No items matched the metadata filter.")
-        return np.array([])
+        if len(filtered_ids) == 0:
+            print("Result: No items matched the metadata filter.")
+            return np.array([])
+    else:
+        ##### Implement indexed metadata filtering ##########
+        pass
 
 
     ###################################################
@@ -53,7 +57,7 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, v
     result_distances, result_indices = utils.batched_vector_search(
         query_vector, data_embed, filtered_ids, k=k, batch_size=batch_size
     )
-    
+
     retrieve_time = time.time() - start_time
 
     if num_filtered <= batch_size:

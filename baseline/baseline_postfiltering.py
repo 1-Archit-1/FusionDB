@@ -8,7 +8,7 @@ import utils
 
 
 
-def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, vector_batch_size=100000, k=10):
+def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, meta_method='duck', vector_batch_size=100000, k=10):
     """
     Runs the full post-filtering baseline:
     1. Filters metadata *directly from disk* using DuckDB.
@@ -52,17 +52,21 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     
     # This filter doesnt use any results from the search itself, 
     # it just gets the IDs that match the SQL clause.
-    try:
-        filtered_ids = duckdb_rel.run_query(res, sql_where_clause)
-    except Exception as e:
-        print(f"Error applying SQL filter: {e}")
-        print("Please check your column names and SQL syntax.")
-        return None
+    if meta_method == 'duck':
+        try:
+            filtered_ids = duckdb_rel.run_query(res, sql_where_clause)
+        except Exception as e:
+            print(f"Error applying SQL filter: {e}")
+            print("Please check your column names and SQL syntax.")
+            return None
 
-    if len(filtered_ids) == 0:
-        print("Result: No items matched the metadata filter.")
-        return np.array([])
-    
+        if len(filtered_ids) == 0:
+            print("Result: No items matched the metadata filter.")
+            return np.array([])
+    else:
+        ##### Implement indexed metadata filtering ##########
+        pass
+
     result_indices = []
     result_distances_list = []
     for i, idx in enumerate(local_indices):
