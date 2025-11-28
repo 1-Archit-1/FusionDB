@@ -64,8 +64,8 @@ class IndexedMetadataFilter:
             global_offset += mgr.n
             self.total_rows += mgr.n
             
-            print(f"  ✓ Built indices for {mgr.n:,} rows")
-            print(f"  Global range: {self.file_ranges[-1]['global_start']}-{self.file_ranges[-1]['global_end']}")
+            print(f"Built indices for {mgr.n:,} rows")
+            print(f"Global range: {self.file_ranges[-1]['global_start']}-{self.file_ranges[-1]['global_end']}")
         
         print(f"\nTotal metadata rows: {self.total_rows:,}")
         
@@ -94,14 +94,34 @@ class IndexedMetadataFilter:
         
         print(f"Parsed conditions: {conditions}")
         
+        # Separate field-vs-field conditions from regular conditions
+        field_vs_field_conditions = {}
+        regular_conditions = {}
+        
+        for key, value in conditions.items():
+            if '_vs_' in key:
+                field_vs_field_conditions[key] = value
+            else:
+                regular_conditions[key] = value
+        
         # Query each file and collect results
         all_results = []
         
         for file_range in self.file_ranges:
             mgr = file_range['manager']
             
-            # Query this file
-            local_indices = mgr.query(**conditions)
+            # First: Apply regular IndexManager conditions
+            if regular_conditions:
+                local_indices = mgr.query(**regular_conditions)
+            else:
+                # No regular conditions, start with all indices
+                local_indices = np.arange(mgr.n, dtype=np.int32)
+            
+            # Second: Apply field-vs-field filtering
+            if field_vs_field_conditions and len(local_indices) > 0:
+                local_indices = self._apply_field_vs_field_filter(
+                    mgr, local_indices, field_vs_field_conditions
+                )
             
             # Convert to global indices
             if len(local_indices) > 0:
@@ -113,6 +133,50 @@ class IndexedMetadataFilter:
         print(f"Query returned {len(result_array)} rows out of {self.total_rows} total rows.")
         
         return result_array
+    
+    def _apply_field_vs_field_filter(self, mgr, indices, conditions):
+        """
+        Apply field-vs-field filtering on candidate indices
+        
+        Args:
+            mgr: IndexManager instance
+            indices: Candidate indices from regular query
+            conditions: Dict of field-vs-field conditions
+        
+        Returns:
+            np.array: Filtered indices
+        """
+        mask = np.ones(len(indices), dtype=bool)
+        
+        for condition_key in conditions:
+            # Parse condition: 'width_vs_height_gt' → width > height
+            parts = condition_key.split('_vs_')
+            field1 = parts[0]
+            rest = parts[1].split('_')
+            field2 = '_'.join(rest[:-1])  # Handle multi-word fields
+            operator = rest[-1]
+            # Get arrays for both fields
+            array1 = mgr.arrays.get(field1)
+            array2 = mgr.arrays.get(field2)
+            
+            if array1 is None or array2 is None:
+                print(f"Warning: Cannot find arrays for {field1} or {field2}")
+                continue
+            # Get values for candidate indices
+            values1 = array1[indices]
+            values2 = array2[indices]
+            
+            # Apply operator
+            if operator == 'gt':
+                mask &= (values1 > values2)
+            elif operator == 'gte':
+                mask &= (values1 >= values2)
+            elif operator == 'lt':
+                mask &= (values1 < values2)
+            elif operator == 'lte':
+                mask &= (values1 <= values2)
+        
+        return indices[mask]
     
     def _parse_sql_to_conditions(self, sql_clause):
         """
@@ -135,20 +199,33 @@ class IndexedMetadataFilter:
         
         for part in parts:
             part = part.strip()
-            
             # Parse different operators
-            # IMPORTANT: Check longer operators first (>= before >, <= before <)
+            # Check longer operators first (>= before >, <= before <)
             if '>=' in part:
-                # Greater or equal: similarity >= 0.3
-                field, value = self._parse_comparison(part, '>=')
-                min_key = f'{field}_min'
-                conditions[min_key] = value
+                # Greater or equal: similarity >= 0.3 OR width >= height
+                result = self._parse_comparison(part, '>=')
+                if len(result) == 3 and result[2] == 'field':
+                    # Field vs Field
+                    field, other_field, _ = result
+                    conditions[f'{field}_vs_{other_field}_gte'] = None
+                else:
+                    # Field vs Value
+                    field, value, _ = result
+                    min_key = f'{field}_min'
+                    conditions[min_key] = value
                 
             elif '<=' in part:
-                # Less or equal: similarity <= 0.9
-                field, value = self._parse_comparison(part, '<=')
-                max_key = f'{field}_max'
-                conditions[max_key] = value
+                # Less or equal: similarity <= 0.9 OR width <= height
+                result = self._parse_comparison(part, '<=')
+                if len(result) == 3 and result[2] == 'field':
+                    # Field vs Field
+                    field, other_field, _ = result
+                    conditions[f'{field}_vs_{other_field}_lte'] = None
+                else:
+                    # Field vs Value
+                    field, value, _ = result
+                    max_key = f'{field}_max'
+                    conditions[max_key] = value
                 
             elif '==' in part or '=' in part:
                 # Equality: NSFW == 'UNLIKELY'
@@ -156,16 +233,30 @@ class IndexedMetadataFilter:
                 conditions[field] = value
                 
             elif '>' in part:
-                # Greater than: original_width > 1024
-                field, value = self._parse_comparison(part, '>')
-                min_key = f'{field}_min'
-                conditions[min_key] = value + 0.0001  # Strict inequality
+                # Greater than: original_width > 1024 OR width > height
+                result = self._parse_comparison(part, '>')
+                if len(result) == 3 and result[2] == 'field':
+                    # Field vs Field
+                    field, other_field, _ = result
+                    conditions[f'{field}_vs_{other_field}_gt'] = None
+                else:
+                    # Field vs Value
+                    field, value, _ = result
+                    min_key = f'{field}_min'
+                    conditions[min_key] = value + 0.0001  # Strict inequality
                 
             elif '<' in part:
-                # Less than: similarity < 0.5
-                field, value = self._parse_comparison(part, '<')
-                max_key = f'{field}_max'
-                conditions[max_key] = value - 0.0001
+                # Less than: similarity < 0.5 OR width < height
+                result = self._parse_comparison(part, '<')
+                if len(result) == 3 and result[2] == 'field':
+                    # Field vs Field
+                    field, other_field, _ = result
+                    conditions[f'{field}_vs_{other_field}_lt'] = None
+                else:
+                    # Field vs Value
+                    field, value, _ = result
+                    max_key = f'{field}_max'
+                    conditions[max_key] = value - 0.0001  # Strict inequality
         
         return conditions
     
@@ -191,11 +282,15 @@ class IndexedMetadataFilter:
         return field_map.get(field, field.lower()), value
     
     def _parse_comparison(self, expr, operator):
-        """Parse comparison expression: original_width > 1024"""
+        """
+        Parse comparison expression
+        Supports both:
+        - Field vs Value: original_width > 1024
+        - Field vs Field: original_width > original_height
+        """
         left, right = expr.split(operator)
-        
         field = left.strip()
-        value = float(right.strip())
+        right_str = right.strip()
         
         # Map SQL field names to IndexManager field names
         field_map = {
@@ -204,7 +299,16 @@ class IndexedMetadataFilter:
             'original_height': 'height'
         }
         
-        return field_map.get(field, field.lower()), value
+        # Check if right side is a field name or a value
+        # If it's a field name (contains letters), treat as field comparison
+        if right_str.replace('_', '').isalpha():
+            # Field vs Field comparison
+            right_field = field_map.get(right_str, right_str.lower())
+            return field_map.get(field, field.lower()), right_field, 'field'
+        else:
+            # Field vs Value comparison
+            value = float(right_str)
+            return field_map.get(field, field.lower()), value, 'value'
 
 
 # Global instance (similar to duckdb_rel)
@@ -212,7 +316,7 @@ index_rel = IndexedMetadataFilter()
 
 
 # ============================================================================
-# Convenience functions (to match duckdb_rel interface)
+# Convenience functions (match duckdb_rel interface)
 # ============================================================================
 
 def db_implementation(meta_path):
