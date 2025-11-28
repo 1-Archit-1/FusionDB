@@ -27,6 +27,7 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, m
     ##################################################
 
     start_time = time.time()
+    start_mem = utils.get_memory_mb()
     
     if meta_method == 'duck':
         try:
@@ -47,6 +48,7 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, m
         raise ValueError(f"Unknown meta_method: {meta_method}")
     
     filter_time = time.time() - start_time
+    filter_mem = utils.get_memory_mb() - start_mem
     print(f"1. Metadata filtering: Found {len(filtered_ids)} items in {filter_time:.4f}s")
     
     if len(filtered_ids) == 0:
@@ -54,7 +56,9 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, m
         return {
             'result_indices': np.array([]),
             'filter_time': filter_time,
+            'filter_mem': filter_mem,
             'retrieve_time': 0,
+            'retrieve_mem': 0,
             'search_time': 0,
             'result_distances': np.array([])
         }
@@ -63,6 +67,7 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, m
     ########## Vector Retrieval and Search ############
     ###################################################
     start_time = time.time()
+    start_mem = utils.get_memory_mb()
     
     batch_size = vector_batch_size
     num_filtered = len(filtered_ids)
@@ -72,6 +77,7 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, m
     )
 
     retrieve_time = time.time() - start_time
+    retrieve_mem = utils.get_memory_mb() - start_mem
 
     if num_filtered <= batch_size:
         print(f"2. Vector retrieval and search: Processed {num_filtered} vectors in {retrieve_time:.4f}s")
@@ -84,7 +90,9 @@ def search_baseline_prefilter(query_vector, sql_where_clause, res, data_embed, m
     return {
         'result_indices': result_indices,
         'filter_time': filter_time,
+        'filter_mem': filter_mem,
         'retrieve_time': retrieve_time,
+        'retrieve_mem': retrieve_mem,
         'search_time': search_time,
         'result_distances': result_distances
     }

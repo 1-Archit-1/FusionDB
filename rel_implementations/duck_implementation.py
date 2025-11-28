@@ -44,7 +44,7 @@ def run_query(res, where_clause):
     parquet_files = sorted(glob.glob(meta_path))
     try:
         query = f"""
-        SELECT index as id
+        SELECT shard_id as id
         FROM read_parquet({parquet_files}, filename=true)
         WHERE {where_clause}
         """

@@ -26,6 +26,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     ##########################################
 
     start_time = time.time()
+    start_mem = utils.get_memory_mb()
     # Process all vectors in batches to avoid loading entire dataset into memory
     batch_size = vector_batch_size  # Adjust based on available memory
     num_vectors = len(data_embed)
@@ -40,6 +41,8 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
         query_vector, data_embed, all_ids, k=target_k, batch_size=batch_size
     )
     retrieve_time = time.time() - start_time
+    retrieve_mem = utils.get_memory_mb() - start_mem
+    
 
     ###################################################
     ###### Metadata Post-Filtering of Results #########    
@@ -49,6 +52,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     print(f"   Vector retrieval and search (batched from mmap): Completed in {retrieve_time:.4f}s")
     print(f"Fetched {len(local_indices)} candidate results before post-filtering.")
     start_time = time.time()
+    start_mem = utils.get_memory_mb()
     
     # This filter doesnt use any results from the search itself, 
     # it just gets the IDs that match the SQL clause.
@@ -79,15 +83,19 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     result_distances = np.array(result_distances_list)
 
     filter_time = time.time() - start_time
+    filter_mem = utils.get_memory_mb() - start_mem
 
     print(f"2. Metadata post-filtering: Completed in {filter_time:.4f}s")
     print("----------------------------------------------------------------------")
-    return{
+    return {
         'result_indices': result_indices,
         'filter_time': filter_time,
-        'retrieve_time': retrieve_time,  # This now includes both retrieval and search time
+        'filter_mem': filter_mem,
+        'retrieve_time': retrieve_time,
+        'retrieve_mem': retrieve_mem,
         'result_distances': result_distances
     }
+
 
 
 ##################

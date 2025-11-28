@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import faiss
 import time
+import utils
 from rel_implementations import duckdb_rel, index_rel
 
 def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index, 
@@ -23,6 +24,7 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
     total_vectors = len(data_embed)
     
     start_time = time.time()
+    start_mem = utils.get_memory_mb()
     if meta_method == 'duck':
         try:
             filtered_ids = duckdb_rel.run_query(res, sql_where_clause)
@@ -34,6 +36,7 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
         filtered_ids = index_rel.run_query(res, sql_where_clause)
     
     filter_time = time.time() - start_time
+    filter_mem = utils.get_memory_mb() - start_mem
     num_filtered = len(filtered_ids)
     selectivity = num_filtered / total_vectors
     
@@ -45,8 +48,12 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
             'result_indices': np.array([]),
             'result_distances': np.array([]),
             'filter_time': filter_time,
+            'filter_mem': filter_mem,
             'vector_search_time': 0,
-            'strategy': 'none'
+            'vector_search_mem':0,
+            'strategy': 'none',
+            'selectivity':0.0,
+            'total_time':filter_time
         }
     
     if selectivity < selectivity_threshold:
@@ -55,6 +62,7 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
         print(f"Strategy: PRE-FILTERING (selectivity {selectivity:.2%} < {selectivity_threshold:.2%})")
         
         start_time = time.time()
+        start_mem = utils.get_memory_mb()
         
         # Direct search on filtered vectors using FAISS indexFlatIP
         filtered_vectors = data_embed[filtered_ids].astype('float32')
@@ -75,6 +83,7 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
         result_distances = distances
         
         vector_search_time = time.time() - start_time
+        vector_search_mem = utils.get_memory_mb() - start_mem
         print(f"Pre-filtering search: {vector_search_time:.4f}s on {num_filtered} vectors")
         
     else:
@@ -83,6 +92,7 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
         print(f"Strategy: POST-FILTERING (selectivity {selectivity:.2%} >= {selectivity_threshold:.2%})")
         
         start_time = time.time()
+        start_mem = utils.get_memory_mb()
         
         # Search entire index with FAISS
         target_k = min(100 * k, total_vectors)
@@ -94,9 +104,11 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
         distances = 1.0 - similarities
         
         vector_search_time = time.time() - start_time
+        vector_search_mem = utils.get_memory_mb() - start_mem
         print(f"FAISS search: {vector_search_time:.4f}s, retrieved {len(candidate_indices)} candidates")
         
         start_time = time.time()
+        start_mem = utils.get_memory_mb()
         filtered_id_set = set(filtered_ids)
         
         result_indices = []
@@ -112,17 +124,22 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
         result_distances = np.array(result_distances_list)
         
         postfilter_time = time.time() - start_time
+        postfilter_mem = utils.get_memory_mb() - start_mem
         filter_time += postfilter_time  # Add post-filtering time to filter_time
+        filter_mem += postfilter_mem
         
         print(f"Post-filtering: {postfilter_time:.4f}s, found {len(result_indices)} results")
     
     print(f"Total time: {filter_time + vector_search_time:.4f}s")
+    print(f"Total memory: {filter_mem + vector_search_mem:.2f}MB")
     
     return {
         'result_indices': result_indices,
         'result_distances': result_distances,
         'filter_time': filter_time,
+        'filter_mem': filter_mem,
         'vector_search_time': vector_search_time,
+        'vector_search_mem': vector_search_mem,
         'strategy': strategy,
         'selectivity': selectivity
     }

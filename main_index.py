@@ -1,6 +1,6 @@
 from baseline.baseline_post_index import search_baseline_postfilter
 from baseline.baseline_pre_index import search_baseline_prefilter
-from hybrid import search_hybrid, build_or_load_faiss_index
+from hybrid_index import search_hybrid, build_or_load_faiss_index
 from dotenv import load_dotenv
 import os
 
@@ -128,6 +128,17 @@ if prefilter_total > 0:
 if postfilter_total > 0:
     speedup_vs_post = postfilter_total / hybrid_total
     print(f"Hybrid is {speedup_vs_post:.2f}x faster than Postfilter")
+
+print(f"\n--- Memory Comparison ---")
+prefilter_total = prefilter['filter_mem'] + prefilter['retrieve_mem']
+postfilter_total = postfilter['filter_mem'] + postfilter['retrieve_mem']
+hybrid_total = hybrid['filter_mem'] + hybrid['vector_search_mem']
+
+print(f"Prefilter:  Filter={prefilter['filter_mem']:.2f}MB, Search={prefilter['retrieve_mem']:.2f}MB, Total={prefilter_total:.2f}MB")
+print(f"Postfilter: Search={postfilter['retrieve_mem']:.2f}MB, Filter={postfilter['filter_mem']:.2f}MB, Total={postfilter_total:.2f}MB")
+print(f"Hybrid:     Filter={hybrid['filter_mem']:.2f}MB, Search={hybrid['vector_search_mem']:.2f}MB, Total={hybrid_total:.2f}MB")
+print(f"            Strategy: {hybrid['strategy']}, Selectivity: {hybrid['selectivity']:.2%}")
+
 
 if META_METHOD == 'index':
     print(f"\n===== IndexManager Performance =====")

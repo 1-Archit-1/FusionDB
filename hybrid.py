@@ -46,7 +46,9 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
             'result_distances': np.array([]),
             'filter_time': filter_time,
             'vector_search_time': 0,
-            'strategy': 'none'
+            'strategy': 'none',
+            'selectivity':0.0,
+            'total_time':filter_time
         }
     
     if selectivity < selectivity_threshold:

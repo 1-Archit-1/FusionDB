@@ -1,5 +1,9 @@
 import numpy as np
 import faiss
+from sentence_transformers import SentenceTransformer, util
+from PIL import Image
+import torch
+import psutil, os
 
 def calculate_recall(found_indices, ground_truth_indices):
     # Convert to sets for efficient intersection
@@ -129,3 +133,22 @@ def batched_vector_search(query_vector, data_embed, ids_to_search, k=10, batch_s
     result_indices = ids_to_search[local_indices]
     
     return result_distances, result_indices
+
+def convert_image_to_embedding(image_path): 
+    model = SentenceTransformer('clip-ViT-B-32')
+
+    #Encode an image:
+    img_emb = model.encode(Image.open(image_path))
+
+    return img_emb
+
+def convert_caption_to_embedding(texts):
+    model = SentenceTransformer('clip-ViT-B-32')
+
+    text_emb = model.encode(texts)
+
+    return text_emb
+
+def get_memory_mb():
+    process = psutil.Process(os.getpid())
+    return process.memory_info().rss / 1024**2

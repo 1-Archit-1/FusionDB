@@ -31,6 +31,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     ##########################################
 
     start_time = time.time()
+    start_mem = utils.get_memory_mb()
     # Process all vectors in batches to avoid loading entire dataset into memory
     batch_size = vector_batch_size  # Adjust based on available memory
     num_vectors = len(data_embed)
@@ -45,6 +46,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
         query_vector, data_embed, all_ids, k=target_k, batch_size=batch_size
     )
     retrieve_time = time.time() - start_time
+    retrieve_mem = utils.get_memory_mb() - start_mem
 
     print(f"   Vector retrieval and search (batched from mmap): Completed in {retrieve_time:.4f}s")
     print(f"   Fetched {len(local_indices)} candidate results before post-filtering.")
@@ -54,6 +56,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     ###################################################
 
     start_time = time.time()
+    start_mem = utils.get_memory_mb()
     
     if meta_method == 'duck':
         try:
@@ -77,11 +80,13 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     if len(filtered_ids) == 0:
         print("Result: No items matched the metadata filter.")
         return {
-            'result_indices': np.array([]),
-            'filter_time': time.time() - start_time,
-            'retrieve_time': retrieve_time,
-            'result_distances': np.array([])
-        }
+        'result_indices': result_indices,
+        'filter_time': time.time() - start_time,
+        'filter_mem': utils.get_memory_mb() - start_mem,
+        'retrieve_time': retrieve_time,
+        'retrieve_mem': retrieve_mem,
+        'result_distances': result_distances
+    }
     
     # Convert filtered_ids to set for faster lookup
     filtered_id_set = set(filtered_ids)
@@ -100,6 +105,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     result_distances = np.array(result_distances_list)
 
     filter_time = time.time() - start_time
+    filter_mem = utils.get_memory_mb() - start_mem
 
     print(f"2. Metadata post-filtering: Completed in {filter_time:.4f}s")
     print(f"   Final results: {len(result_indices)} items")
@@ -108,7 +114,9 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     return {
         'result_indices': result_indices,
         'filter_time': filter_time,
-        'retrieve_time': retrieve_time,  # This includes vector search time
+        'filter_mem': filter_mem,
+        'retrieve_time': retrieve_time,
+        'retrieve_mem': retrieve_mem,
         'result_distances': result_distances
     }
 
