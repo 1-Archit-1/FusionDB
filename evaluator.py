@@ -24,17 +24,20 @@ class Evaluator:
             [
                 ["Images/orange_cat.webp"],
                 [], 
-                "nsfw = \'UNSURE\'"
+                "nsfw = \'UNSURE\'",
+                "AND"
             ],
             [
                 ["Images/rat.webp", "Images/man_eating_sandwich.jpg"],
                 [],
-                "original_width > original_height and license is NULL"
+                "original_width > original_height and license is NULL",
+                "OR"
             ],
             [
                 [],
                 ["people playing poker"],
-                "original_width = original_height and license is not NULL and nsfw=\"NSFW\""
+                "original_width = original_height and license is not NULL and nsfw=\"NSFW\"",
+                "AND"
             ]
         ]
 
@@ -98,16 +101,37 @@ class Evaluator:
         faiss.normalize_L2(query_text_vec.reshape(1, -1))
         query_text_vec = query_text_vec.reshape(-1) # Make 1D
 
-        return query_img_vecs, query_text_vec, self.workloads[idx][2]
+        return query_img_vecs, query_text_vec, self.workloads[idx][2], self.workloads[idx][3]
+    
+    def get_group_query(self, img_vecs, text_vec):
+        all_vecs = []
+
+        # Add image vectors
+        for vec in img_vecs:
+            if vec is not None and len(vec) > 0:
+                all_vecs.append(vec)
+
+        # Add text vector (if any)
+        if text_vec is not None and len(text_vec) > 0:
+            all_vecs.append(text_vec)
+
+        if not all_vecs:
+            raise ValueError("No vectors provided for query.")
+
+        # Stack + Normalize + Mean-pool + Normalize again
+        queries = np.stack(all_vecs).astype('float32')
+        faiss.normalize_L2(queries)
+
+        combined = np.mean(queries, axis=0, keepdims=False).astype('float32')
+        faiss.normalize_L2(combined.reshape(1, -1))
+
+        return combined
 
     def evaluate(self):
         for idx in range(len(self.workloads)):
-            img_vecs, text_vec, meta_query = self.get_workload(idx)
+            img_vecs, text_vec, meta_query, multi_query_mode = self.get_workload(idx)
             vector_batch_size = int(os.getenv('vector_batch_size'))
-            if len(img_vecs) > 0:
-                query_vec = img_vecs[0]
-            else:
-                query_vec = text_vec
+            query_vec = self.get_group_query(img_vecs, text_vec)
 
             print("===== Running Baseline: Pre-filtering =====")
             prefilter = search_baseline_prefilter(
@@ -115,7 +139,7 @@ class Evaluator:
                 sql_where_clause = meta_query, 
                 res = self.res, 
                 data_embed = self.data_embed, 
-                meta_method = self.META_METHOD, # use duckdb for metadata filtering
+                meta_method = self.META_METHOD,
                 vector_batch_size= vector_batch_size, 
                 k=10
             )
@@ -126,7 +150,7 @@ class Evaluator:
                 sql_where_clause = meta_query, 
                 res = self.res, 
                 data_embed = self.data_embed, 
-                meta_method =self.META_METHOD, # use duckdb for metadata filtering
+                meta_method =self.META_METHOD,
                 vector_batch_size = vector_batch_size, 
                 k = 10
             )
@@ -282,104 +306,96 @@ class Evaluator:
     
 
 
-    def plot_results(self):
+    def plot_results(self, save_path=None):
         if not self.eval_results:
             print("No results stored. Run evaluate() first.")
             return
 
         workloads = [res["workload"] for res in self.eval_results]
+        workload_labels = [str(w+1) for w in workloads]  # e.g., 1,2,3 or custom labels
 
-        # Recall
-        recall_post_vs_pre = [res["recall_post_vs_pre"] for res in self.eval_results]
-        recall_hybrid_vs_pre = [res["recall_hybrid_vs_pre"] for res in self.eval_results]
+        # Recall values
+        recall_post = [res["recall_post_vs_pre"] for res in self.eval_results]
+        recall_hybrid = [res["recall_hybrid_vs_pre"] for res in self.eval_results]
 
-        # Latency breakdown
-        pre_filter = [res["prefilter"]["filter_time"] for res in self.eval_results]
-        pre_retrieve = [res["prefilter"]["retrieve_time"] for res in self.eval_results]
+        # Total latencies
         pre_total = [res["prefilter"]["total_time"] for res in self.eval_results]
-
-        post_filter = [res["postfilter"]["filter_time"] for res in self.eval_results]
-        post_retrieve = [res["postfilter"]["retrieve_time"] for res in self.eval_results]
         post_total = [res["postfilter"]["total_time"] for res in self.eval_results]
-
-        hybrid_filter = [res["hybrid"]["filter_time"] for res in self.eval_results]
-        hybrid_vec = [res["hybrid"]["vec_search_time"] for res in self.eval_results]
         hybrid_total = [res["hybrid"]["total_time"] for res in self.eval_results]
-
-        # Speed-ups
-        speed_post_vs_pre = [pre/post if post > 0 else np.nan for pre, post in zip(pre_total, post_total)]
-        speed_hybrid_vs_pre = [pre/hyb if hyb > 0 else np.nan for pre, hyb in zip(pre_total, hybrid_total)]
-        speed_hybrid_vs_post = [post/hyb if hyb > 0 else np.nan for post, hyb in zip(post_total, hybrid_total)]
 
         # Memory usage
         pre_mem = [res["prefilter"]["total_mem"] for res in self.eval_results]
         post_mem = [res["postfilter"]["total_mem"] for res in self.eval_results]
         hybrid_mem = [res["hybrid"]["total_mem"] for res in self.eval_results]
 
+        # Breakdown filter vs retrieval / vector search times
+        pre_filter = [res["prefilter"]["filter_time"] for res in self.eval_results]
+        pre_retrieve = [res["prefilter"]["retrieve_time"] for res in self.eval_results]
+        post_filter = [res["postfilter"]["filter_time"] for res in self.eval_results]
+        post_retrieve = [res["postfilter"]["retrieve_time"] for res in self.eval_results]
+        hybrid_filter = [res["hybrid"]["filter_time"] for res in self.eval_results]
+        hybrid_search = [res["hybrid"]["vec_search_time"] for res in self.eval_results]
+
+        width = 0.2
         x = np.arange(len(workloads))
-        width = 0.25
 
-        fig, axes = plt.subplots(3, 2, figsize=(18, 15))
+        fig, ax = plt.subplots(2, 2, figsize=(16, 10))
 
-        # Recall
-        axes[0,0].plot(workloads, recall_post_vs_pre, marker='o', label="Post vs Pre Recall")
-        axes[0,0].plot(workloads, recall_hybrid_vs_pre, marker='x', label="Hybrid vs Pre Recall")
-        axes[0,0].set_title("Recall per Workload")
-        axes[0,0].set_xlabel("Workload ID")
-        axes[0,0].set_ylabel("Recall")
-        axes[0,0].set_ylim(0, 1.05)
-        axes[0,0].grid(True)
-        axes[0,0].legend()
+        # --- Recall@K ---
+        ax[0, 0].plot(x, recall_post, marker='o', label='Postfilter vs Prefilter')
+        ax[0, 0].plot(x, recall_hybrid, marker='s', label='Hybrid vs Prefilter')
+        ax[0, 0].set_title("Recall@10 per Workload")
+        ax[0, 0].set_xlabel("Workload")
+        ax[0, 0].set_ylabel("Recall")
+        ax[0, 0].set_xticks(x)
+        ax[0, 0].set_xticklabels(workload_labels)
+        ax[0, 0].set_ylim(0, 1.05)
+        ax[0, 0].grid(True)
+        ax[0, 0].legend()
 
-        # Total Latency
-        axes[0,1].bar(x - width, pre_total, width, label='Prefilter')
-        axes[0,1].bar(x, post_total, width, label='Postfilter')
-        axes[0,1].bar(x + width, hybrid_total, width, label='Hybrid')
-        axes[0,1].set_title("Total Latency per Workload")
-        axes[0,1].set_xlabel("Workload ID")
-        axes[0,1].set_ylabel("Seconds")
-        axes[0,1].legend()
-        axes[0,1].grid(True)
+        # --- Total Latency ---
+        ax[0, 1].bar(x - width, pre_total, width, label='Prefilter Total')
+        ax[0, 1].bar(x, post_total, width, label='Postfilter Total')
+        ax[0, 1].bar(x + width, hybrid_total, width, label='Hybrid Total')
+        ax[0, 1].set_title("Total Latency per Workload")
+        ax[0, 1].set_xlabel("Workload")
+        ax[0, 1].set_ylabel("Seconds")
+        ax[0, 1].set_xticks(x)
+        ax[0, 1].set_xticklabels(workload_labels)
+        ax[0, 1].legend()
+        ax[0, 1].grid(True)
 
-        # Filter vs Retrieve Time Breakdown
-        axes[1,0].bar(x - width, pre_filter, width, label='Prefilter Filter')
-        axes[1,0].bar(x - width, pre_retrieve, width, bottom=pre_filter, label='Prefilter Retrieve')
+        # --- Breakdown Filter vs Retrieve/Search ---
+        ax[1, 0].bar(x - width, pre_filter, width, label='Prefilter Filter')
+        ax[1, 0].bar(x, post_filter, width, label='Postfilter Filter')
+        ax[1, 0].bar(x + width, hybrid_filter, width, label='Hybrid Filter')
+        ax[1, 0].plot(x - width, pre_retrieve, marker='x', linestyle='--', label='Prefilter Retrieve')
+        ax[1, 0].plot(x, post_retrieve, marker='x', linestyle='--', label='Postfilter Retrieve')
+        ax[1, 0].plot(x + width, hybrid_search, marker='x', linestyle='--', label='Hybrid Vector Search')
+        ax[1, 0].set_title("Filter vs Retrieve/Vector Search Time")
+        ax[1, 0].set_xlabel("Workload")
+        ax[1, 0].set_ylabel("Seconds")
+        ax[1, 0].set_xticks(x)
+        ax[1, 0].set_xticklabels(workload_labels)
+        ax[1, 0].legend()
+        ax[1, 0].grid(True)
 
-        axes[1,0].bar(x, post_filter, width, label='Postfilter Filter')
-        axes[1,0].bar(x, post_retrieve, width, bottom=post_filter, label='Postfilter Retrieve')
-
-        axes[1,0].bar(x + width, hybrid_filter, width, label='Hybrid Filter')
-        axes[1,0].bar(x + width, hybrid_vec, width, bottom=hybrid_filter, label='Hybrid Vec Search')
-
-        axes[1,0].set_title("Filter vs Retrieval Time Breakdown")
-        axes[1,0].set_xlabel("Workload ID")
-        axes[1,0].set_ylabel("Seconds")
-        axes[1,0].legend()
-        axes[1,0].grid(True)
-
-        # Speed-ups
-        axes[1,1].plot(x, speed_post_vs_pre, marker='o', label="Post vs Pre")
-        axes[1,1].plot(x, speed_hybrid_vs_pre, marker='x', label="Hybrid vs Pre")
-        axes[1,1].plot(x, speed_hybrid_vs_post, marker='^', label="Hybrid vs Post")
-        axes[1,1].axhline(1.0, linestyle='--', color='gray')
-        axes[1,1].set_title("Speed-up Factors (Higher = Faster)")
-        axes[1,1].set_ylabel("× Faster")
-        axes[1,1].set_xlabel("Workload ID")
-        axes[1,1].legend()
-        axes[1,1].grid(True)
-
-        # Memory Usage
-        axes[2,0].bar(x - width, pre_mem, width, label='Prefilter')
-        axes[2,0].bar(x, post_mem, width, label='Postfilter')
-        axes[2,0].bar(x + width, hybrid_mem, width, label='Hybrid')
-        axes[2,0].set_title("Memory Usage per Workload (MB)")
-        axes[2,0].set_ylabel("MB")
-        axes[2,0].set_xlabel("Workload ID")
-        axes[2,0].legend()
-        axes[2,0].grid(True)
-
-        # Hide the empty subplot (axes[2,1])
-        axes[2,1].axis('off')
+        # --- Memory Usage ---
+        ax[1, 1].bar(x - width, pre_mem, width, label='Prefilter Total Mem')
+        ax[1, 1].bar(x, post_mem, width, label='Postfilter Total Mem')
+        ax[1, 1].bar(x + width, hybrid_mem, width, label='Hybrid Total Mem')
+        ax[1, 1].set_title("Memory Usage per Workload")
+        ax[1, 1].set_xlabel("Workload")
+        ax[1, 1].set_ylabel("MB")
+        ax[1, 1].set_xticks(x)
+        ax[1, 1].set_xticklabels(workload_labels)
+        ax[1, 1].legend()
+        ax[1, 1].grid(True)
 
         plt.tight_layout()
+
+        if save_path:
+            plt.savefig(save_path, dpi=300)
+            print(f"Plot saved to {save_path}")
+
         plt.show()

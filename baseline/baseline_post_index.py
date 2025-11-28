@@ -46,7 +46,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
         query_vector, data_embed, all_ids, k=target_k, batch_size=batch_size
     )
     retrieve_time = time.time() - start_time
-    retrieve_mem = utils.get_memory_mb() - start_mem
+    retrieve_mem = abs(utils.get_memory_mb() - start_mem)
 
     print(f"   Vector retrieval and search (batched from mmap): Completed in {retrieve_time:.4f}s")
     print(f"   Fetched {len(local_indices)} candidate results before post-filtering.")
