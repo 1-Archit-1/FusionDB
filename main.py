@@ -9,5 +9,5 @@ eval_duck.plot_results()
 
 eval_idx = Evaluator(meta_method='index')
 eval_idx.evaluate()
-eval_duck.export_results(output_dir=f"{results_dir}index")
+eval_idx.export_results(output_dir=f"{results_dir}index")
 eval_idx.plot_results()
