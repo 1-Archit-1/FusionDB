@@ -296,10 +296,19 @@ class Evaluator:
                 f.write("\n")
 
                 f.write(f"--- Memory Consumption Changes ---\n")
-                usage_vs_pre = prefilter['total_mem'] / hybrid['total_mem']
-                usage_vs_post = postfilter['total_mem'] / hybrid['total_mem']
-                f.write(f"Hybrid Uses {usage_vs_pre:.2f}x more memory than Prefilter\n")
-                f.write(f"Hybrid Uses {usage_vs_post:.2f}x more memory Postfilter\n")
+                if prefilter['total_mem'] > 0:
+                    usage_vs_pre = hybrid['total_mem'] / prefilter['total_mem'] 
+                    f.write(f"Hybrid Uses {usage_vs_pre:.2f}x more memory than Prefilter\n")
+                else:
+                    f.write(f"Hybrid Uses inf_x more memory than Prefilter\n")
+
+                if postfilter['total_mem'] > 0:
+                    usage_vs_post = hybrid['total_mem'] / postfilter['total_mem'] 
+                    f.write(f"Hybrid Uses {usage_vs_post:.2f}x more memory Postfilter\n")
+                else:
+                    f.write(f"Hybrid Uses inf_x more memory than Postfilter\n")
+                
+                
                     
 
         print("\nAll workload results exported successfully!")        
@@ -342,8 +351,8 @@ class Evaluator:
         fig, ax = plt.subplots(2, 2, figsize=(16, 10))
 
         # --- Recall@K ---
-        ax[0, 0].plot(x, recall_post, marker='o', label='Postfilter vs Prefilter')
-        ax[0, 0].plot(x, recall_hybrid, marker='s', label='Hybrid vs Prefilter')
+        ax[0, 0].bar(x - width, recall_post, width, label='Postfilter vs Prefilter')
+        ax[0, 0].bar(x, recall_hybrid, width, label='Hybrid vs Prefilter')
         ax[0, 0].set_title("Recall@10 per Workload")
         ax[0, 0].set_xlabel("Workload")
         ax[0, 0].set_ylabel("Recall")
@@ -360,6 +369,7 @@ class Evaluator:
         ax[0, 1].set_title("Total Latency per Workload")
         ax[0, 1].set_xlabel("Workload")
         ax[0, 1].set_ylabel("Seconds")
+        ax[0, 1].set_yscale('log')
         ax[0, 1].set_xticks(x)
         ax[0, 1].set_xticklabels(workload_labels)
         ax[0, 1].legend()
@@ -375,6 +385,7 @@ class Evaluator:
         ax[1, 0].set_title("Filter vs Retrieve/Vector Search Time")
         ax[1, 0].set_xlabel("Workload")
         ax[1, 0].set_ylabel("Seconds")
+        ax[1, 0].set_yscale('log')
         ax[1, 0].set_xticks(x)
         ax[1, 0].set_xticklabels(workload_labels)
         ax[1, 0].legend()
@@ -387,6 +398,7 @@ class Evaluator:
         ax[1, 1].set_title("Memory Usage per Workload")
         ax[1, 1].set_xlabel("Workload")
         ax[1, 1].set_ylabel("MB")
+        ax[1, 1].set_yscale('log')
         ax[1, 1].set_xticks(x)
         ax[1, 1].set_xticklabels(workload_labels)
         ax[1, 1].legend()
