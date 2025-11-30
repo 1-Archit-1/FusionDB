@@ -93,7 +93,7 @@ The system automatically selects the optimal search strategy:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Hybrid Search Flow                       │
+│                     Hybrid Search Flow                      │
 └─────────────────────────────────────────────────────────────┘
 
 1. Query Input
