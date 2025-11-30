@@ -15,7 +15,7 @@ Custom index for metadata filtering, serving as an alternative to DuckDB for hyb
   - Hash Indices: Dictionary-based lookup for categorical fields (O(1) query time)
   - Field-vs-Field Support: NumPy vectorized operations for complex comparisons
   - SQL Compatibility: Support parser supporting NULL checks and variable comparisons
-## Architecture
+#### Architecture
 
 ```
 Query (SQL WHERE clause)
