@@ -8,6 +8,27 @@ Once everything is setup, you can just test the project by running `main.py` to 
 
 ## Metadata filtering
 
+
+### Alternative Metadata Index System
+Custom index for metadata filtering, serving as an alternative to DuckDB for hybrid search queries through specialized indices for different data types:
+  - Range Indices: Binary search on sorted arrays for numeric fields (O(log n) query time)
+  - Hash Indices: Dictionary-based lookup for categorical fields (O(1) query time)
+  - Field-vs-Field Support: NumPy vectorized operations for complex comparisons
+  - SQL Compatibility: Support parser supporting NULL checks and variable comparisons
+
+Architecture：
+Query (SQL WHERE clause)
+    ↓
+SQL Parser
+    ↓
+Two-Stage Filtering:
+    Stage 1: Index-based filtering (e.g.nsfw='UNLIKELY', width>1024)
+    Stage 2: Array-based filtering (e.g.width>height, IS NULL checks)
+    ↓
+Filtered Result IDs
+
+Usage
+
 ## Hybrid Search Algorithm
 
 ## Evaluation
