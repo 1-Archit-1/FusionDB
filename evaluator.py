@@ -35,8 +35,14 @@ class Evaluator:
             ],
             [
                 [],
-                ["people playing poker"],
-                "original_width = original_height and license is not NULL and nsfw=\"NSFW\"",
+                ["people in starbuckss"],
+                "original_width = original_height and license is not NULL and nsfw=\'NSFW\'",
+                "AND"
+            ],
+            [
+                [],
+                ['North Shore'],
+                "license is NULL",
                 "AND"
             ]
         ]
@@ -80,6 +86,7 @@ class Evaluator:
         )
 
         self.eval_results = []
+        self.num_runs = 5  # Number of times to run each workload
 
     def get_workload(self, idx):
         assert(idx >= 0 and idx < len(self.workloads), "cannot get workload from out of bounds idx")
@@ -129,94 +136,116 @@ class Evaluator:
 
     def evaluate(self):
         for idx in range(len(self.workloads)):
+            print(f"\n{'='*80}")
+            print(f"WORKLOAD {idx}: Running {self.num_runs} iterations")
+            print(f"{'='*80}")
+            
             img_vecs, text_vec, meta_query, multi_query_mode = self.get_workload(idx)
             vector_batch_size = int(os.getenv('vector_batch_size'))
             query_vec = self.get_group_query(img_vecs, text_vec)
 
-            print("===== Running Baseline: Pre-filtering =====")
-            prefilter = search_baseline_prefilter(
-                query_vector = query_vec, 
-                sql_where_clause = meta_query, 
-                res = self.res, 
-                data_embed = self.data_embed, 
-                meta_method = self.META_METHOD,
-                vector_batch_size= vector_batch_size, 
-                k=10
-            )
+            # Store results from all runs
+            run_results = {
+                'prefilter': [],
+                'postfilter': [],
+                'hybrid': []
+            }
 
-            print("===== Running Baseline: Post-filtering =====")
-            postfilter = search_baseline_postfilter(
-                query_vector = query_vec, 
-                sql_where_clause = meta_query, 
-                res = self.res, 
-                data_embed = self.data_embed, 
-                meta_method =self.META_METHOD,
-                vector_batch_size = vector_batch_size, 
-                k = 10
-            )
+            # Run workload multiple times
+            for run in range(self.num_runs):
+                print(f"\n--- Run {run + 1}/{self.num_runs} ---")
+                
+                print("===== Running Baseline: Pre-filtering =====")
+                prefilter = search_baseline_prefilter(
+                    query_vector = query_vec, 
+                    sql_where_clause = meta_query, 
+                    res = self.res, 
+                    data_embed = self.data_embed, 
+                    meta_method = self.META_METHOD,
+                    vector_batch_size= vector_batch_size, 
+                    k=10
+                )
 
-            print("===== Running Hybrid Search =====")
-            hybrid = search_hybrid(
-                query_vector=query_vec,
-                sql_where_clause=meta_query,
-                res=self.res,
-                data_embed=self.data_embed,
-                faiss_index=self.faiss_index,
-                meta_method=self.META_METHOD,
-                nprobe=10,
-                k=10,
-                selectivity_threshold=0.1
-            )
+                print("===== Running Baseline: Post-filtering =====")
+                postfilter = search_baseline_postfilter(
+                    query_vector = query_vec, 
+                    sql_where_clause = meta_query, 
+                    res = self.res, 
+                    data_embed = self.data_embed, 
+                    meta_method =self.META_METHOD,
+                    vector_batch_size = vector_batch_size, 
+                    k = 10
+                )
 
+                print("===== Running Hybrid Search =====")
+                hybrid = search_hybrid(
+                    query_vector=query_vec,
+                    sql_where_clause=meta_query,
+                    res=self.res,
+                    data_embed=self.data_embed,
+                    faiss_index=self.faiss_index,
+                    meta_method=self.META_METHOD,
+                    nprobe=10,
+                    k=10,
+                    selectivity_threshold=0.1
+                )
 
-            # Indcies
-            prefilter_results = prefilter['result_indices']
-            postfilter_results = postfilter['result_indices']
-            hybrid_results = hybrid['result_indices']
+                run_results['prefilter'].append(prefilter)
+                run_results['postfilter'].append(postfilter)
+                run_results['hybrid'].append(hybrid)
+
+            # Calculate averages
+            print(f"\n{'='*80}")
+            print(f"Calculating averages for workload {idx}")
+            print(f"{'='*80}")
+            
+            # Average prefilter
+            avg_prefilter = {
+                'filter_time': np.mean([r['filter_time'] for r in run_results['prefilter']]),
+                'retrieve_time': np.mean([r['retrieve_time'] for r in run_results['prefilter']]),
+                'filter_mem': np.mean([r['filter_mem'] for r in run_results['prefilter']]),
+                'retrieve_mem': np.mean([r['retrieve_mem'] for r in run_results['prefilter']]),
+            }
+            avg_prefilter['total_time'] = avg_prefilter['filter_time'] + avg_prefilter['retrieve_time']
+            avg_prefilter['total_mem'] = avg_prefilter['filter_mem'] + avg_prefilter['retrieve_mem']
+            
+            # Average postfilter
+            avg_postfilter = {
+                'filter_time': np.mean([r['filter_time'] for r in run_results['postfilter']]),
+                'retrieve_time': np.mean([r['retrieve_time'] for r in run_results['postfilter']]),
+                'filter_mem': np.mean([r['filter_mem'] for r in run_results['postfilter']]),
+                'retrieve_mem': np.mean([r['retrieve_mem'] for r in run_results['postfilter']]),
+            }
+            avg_postfilter['total_time'] = avg_postfilter['filter_time'] + avg_postfilter['retrieve_time']
+            avg_postfilter['total_mem'] = avg_postfilter['filter_mem'] + avg_postfilter['retrieve_mem']
+            
+            # Average hybrid
+            avg_hybrid = {
+                'filter_time': np.mean([r['filter_time'] for r in run_results['hybrid']]) ,
+                'vec_search_time': np.mean([r['vector_search_time'] for r in run_results['hybrid']]),
+                'filter_mem': np.mean([r['filter_mem'] for r in run_results['hybrid']]),
+                'vec_search_mem': np.mean([r['vector_search_mem'] for r in run_results['hybrid']]),
+            }
+            avg_hybrid['total_time'] = avg_hybrid['filter_time'] + avg_hybrid['vec_search_time']
+            avg_hybrid['total_mem'] = avg_hybrid['filter_mem'] + avg_hybrid['vec_search_mem']
+
+            # Use results from last run for indices (should be same across runs)
+            prefilter_results = run_results['prefilter'][-1]['result_indices']
+            postfilter_results = run_results['postfilter'][-1]['result_indices']
+            hybrid_results = run_results['hybrid'][-1]['result_indices']
 
             # Recall
             recall_post_vs_pre = utils.calculate_recall(found_indices=postfilter_results, ground_truth_indices=prefilter_results)
             recall_hybrid_vs_pre = utils.calculate_recall(found_indices=hybrid_results, ground_truth_indices=prefilter_results)
 
-            # Time
-            total_prefilter_time = prefilter['filter_time'] + prefilter['retrieve_time']
-            total_postfilter_time = postfilter['filter_time'] + postfilter['retrieve_time']
-            total_hybrid_time = hybrid['filter_time'] + hybrid['vector_search_time']
-
-            # Memory Usage
-            total_prefilter_mem = prefilter['filter_mem'] + prefilter['retrieve_mem']
-            total_postfilter_mem = postfilter['filter_mem'] + postfilter['retrieve_mem']
-            total_hybrid_mem = hybrid['filter_mem'] + hybrid['vector_search_mem']
-
-            # Store results for graphing
+            # Store averaged results
             self.eval_results.append({
                 "workload": idx,
                 "recall_post_vs_pre": recall_post_vs_pre,
                 "recall_hybrid_vs_pre": recall_hybrid_vs_pre,
-                "prefilter": {
-                    "filter_time": prefilter['filter_time'],
-                    "retrieve_time": prefilter['retrieve_time'],
-                    "total_time": total_prefilter_time,
-                    "filter_mem":prefilter['filter_mem'],
-                    "retrieve_mem":prefilter['retrieve_mem'],
-                    "total_mem": total_prefilter_mem,
-                },
-                "postfilter": {
-                    "filter_time": postfilter['filter_time'],
-                    "retrieve_time": postfilter['retrieve_time'],
-                    "total_time": total_postfilter_time,
-                    "filter_mem": postfilter['filter_mem'],
-                    "retrieve_mem": postfilter['retrieve_mem'],
-                    "total_mem": total_postfilter_mem,
-                },
-                "hybrid":{
-                    "filter_time": hybrid['filter_time'],
-                    "vec_search_time": hybrid['vector_search_time'],
-                    "total_time": total_hybrid_time,
-                    "filter_mem": hybrid['filter_mem'],
-                    "vec_search_mem": hybrid['vector_search_mem'],
-                    "total_mem": total_hybrid_mem,
-                }
+                "prefilter": avg_prefilter,
+                "postfilter": avg_postfilter,
+                "hybrid": avg_hybrid
             })
 
     def export_results(self, output_dir="results"):
@@ -311,8 +340,114 @@ class Evaluator:
                 
                     
 
-        print("\nAll workload results exported successfully!")        
-    
+        print("\nAll workload results exported successfully!")
+
+
+    def export_averaged_table(self, output_file="results/averaged_results.csv"):
+        """
+        Exports averaged results across all workloads as a CSV table.
+        Must be called AFTER evaluate().
+        """
+        if not self.eval_results:
+            print("No evaluation results found. Run evaluate() first.")
+            return
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        # Prepare data for CSV
+        rows = []
+        headers = [
+            "Workload",
+            "Strategy",
+            "Filter Time (s)",
+            "Retrieve/VecSearch Time (s)",
+            "Total Time (s)",
+            "Filter Mem (MB)",
+            "Retrieve/VecSearch Mem (MB)",
+            "Total Mem (MB)",
+            "Recall vs Prefilter"
+        ]
+        
+        for result in self.eval_results:
+            workload_id = result["workload"]
+            
+            # Prefilter row
+            pre = result["prefilter"]
+            rows.append([
+                workload_id,
+                "Prefilter",
+                f"{pre['filter_time']:.4f}",
+                f"{pre['retrieve_time']:.4f}",
+                f"{pre['total_time']:.4f}",
+                f"{pre['filter_mem']:.2f}",
+                f"{pre['retrieve_mem']:.2f}",
+                f"{pre['total_mem']:.2f}",
+                "1.0000"  # Ground truth
+            ])
+            
+            # Postfilter row
+            post = result["postfilter"]
+            rows.append([
+                workload_id,
+                "Postfilter",
+                f"{post['filter_time']:.4f}",
+                f"{post['retrieve_time']:.4f}",
+                f"{post['total_time']:.4f}",
+                f"{post['filter_mem']:.2f}",
+                f"{post['retrieve_mem']:.2f}",
+                f"{post['total_mem']:.2f}",
+                f"{result['recall_post_vs_pre']:.4f}"
+            ])
+            
+            # Hybrid row
+            hyb = result["hybrid"]
+            rows.append([
+                workload_id,
+                "Hybrid",
+                f"{hyb['filter_time']:.4f}",
+                f"{hyb['vec_search_time']:.4f}",
+                f"{hyb['total_time']:.4f}",
+                f"{hyb['filter_mem']:.2f}",
+                f"{hyb['vec_search_mem']:.2f}",
+                f"{hyb['total_mem']:.2f}",
+                f"{result['recall_hybrid_vs_pre']:.4f}"
+            ])
+        
+        # Write to CSV
+        with open(output_file, 'w', newline='') as f:
+            import csv
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            writer.writerows(rows)
+        
+        print(f"\nAveraged results table exported to: {output_file}")
+        
+        # Also create a formatted text version for easy reading
+        text_output = output_file.replace('.csv', '.txt')
+        with open(text_output, 'w') as f:
+            f.write(f"AVERAGED RESULTS ACROSS {self.num_runs} RUNS\n")
+            f.write("="*120 + "\n\n")
+            
+            # Calculate column widths
+            col_widths = [max(len(str(row[i])) for row in [headers] + rows) + 2 for i in range(len(headers))]
+            
+            # Write header
+            header_line = "".join(h.ljust(col_widths[i]) for i, h in enumerate(headers))
+            f.write(header_line + "\n")
+            f.write("-"*120 + "\n")
+            
+            # Write rows
+            for row in rows:
+                row_line = "".join(str(cell).ljust(col_widths[i]) for i, cell in enumerate(row))
+                f.write(row_line + "\n")
+            
+            f.write("\n" + "="*120 + "\n")
+            f.write(f"\nNote: Each workload was run {self.num_runs} times and results were averaged.\n")
+            f.write("Recall is calculated with Prefilter results as ground truth.\n")
+        
+        print(f"Formatted text table exported to: {text_output}")
+        print(f"\nSummary: Exported results for {len(self.eval_results)} workloads, {len(rows)} total rows")
 
 
     def plot_results(self, save_path=None):

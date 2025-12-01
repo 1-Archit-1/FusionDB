@@ -95,7 +95,7 @@ def search_hybrid(query_vector, sql_where_clause, res, data_embed, faiss_index,
         start_mem = utils.get_memory_mb()
         
         # Search entire index with FAISS
-        target_k = min(100 * k, total_vectors)
+        target_k = min(2000 * k, total_vectors)
         
         query_reshaped = query_vector.reshape(1, -1).astype('float32')
         similarities, candidate_indices = faiss_index.search(query_reshaped, target_k)

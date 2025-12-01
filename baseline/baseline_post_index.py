@@ -35,7 +35,7 @@ def search_baseline_postfilter(query_vector, sql_where_clause, res, data_embed, 
     # Process all vectors in batches to avoid loading entire dataset into memory
     batch_size = vector_batch_size  # Adjust based on available memory
     num_vectors = len(data_embed)
-    target_k = 100 * k  # We want to retrieve more candidates for post-filtering
+    target_k = 2000 * k  # We want to retrieve more candidates for post-filtering
     
     # Create array of all indices to search
     all_ids = np.arange(num_vectors)
